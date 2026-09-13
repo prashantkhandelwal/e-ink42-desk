@@ -31,6 +31,16 @@ def send_http_response(client, status, body, content_type="application/json"):
     client.send(response.encode())
 
 
+def send_http_redirect(client, location):
+    response = (
+        "HTTP/1.1 303 See Other\r\n"
+        "Location: {}\r\n"
+        "Content-Length: 0\r\n"
+        "Connection: close\r\n\r\n"
+    ).format(location)
+    client.send(response.encode())
+
+
 def escape_html(value):
     return (
         str(value)
@@ -76,7 +86,8 @@ def parse_settings(body):
 
     symbol = fields.get("stock_symbol", "").strip().upper()
     if not symbol or len(symbol) > 10 or not all(
-        character.isalnum() or character in ".-" for character in symbol
+        character in "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-"
+        for character in symbol
     ):
         raise ValueError("Invalid stock symbol")
 
@@ -108,13 +119,15 @@ def read_http_request(client):
             if header_end >= 0:
                 for header in request[:header_end].decode().split("\r\n")[1:]:
                     name, separator, value = header.partition(":")
-                    if separator and name.lower() == "content-length":
+                    if separator and name.strip().lower() == "content-length":
                         content_length = int(value.strip())
         if header_end >= 0 and len(request) >= header_end + 4 + content_length:
             break
 
     if header_end < 0 or len(request) >= API_MAX_REQUEST_BYTES:
         raise ValueError("Invalid or oversized request")
+    if len(request) < header_end + 4 + content_length:
+        raise ValueError("Incomplete request body")
     header = request[:header_end].decode()
     method, path, _ = header.split("\r\n", 1)[0].split(" ", 2)
     body = request[header_end + 4:header_end + 4 + content_length]
@@ -131,19 +144,21 @@ def poll_render_api(server):
         return None
 
     try:
-        client.settimeout(1)
+        client.settimeout(5)
         method, path, body = read_http_request(client)
+        path_with_query = path
         path = path.split("?", 1)[0]
         if method == "GET" and path == "/health":
             send_http_response(client, "200 OK", '{"status":"ok"}')
             return None
         if method == "GET" and path in ("/", "/settings"):
-            send_http_response(client, "200 OK", settings_page(), "text/html")
+            saved = "saved=1" in path_with_query
+            send_http_response(client, "200 OK", settings_page(saved), "text/html")
             return None
         if method == "POST" and path == "/settings":
             settings = parse_settings(body)
             save_config(settings)
-            send_http_response(client, "200 OK", settings_page(True), "text/html")
+            send_http_redirect(client, "/settings?saved=1")
             return {"type": "settings", "settings": settings}
         if method != "POST" or path != "/render":
             send_http_response(client, "404 Not Found", '{"error":"not found"}')
@@ -161,7 +176,11 @@ def poll_render_api(server):
     except Exception as error:
         print("API request failed:", error)
         try:
-            send_http_response(client, "400 Bad Request", '{"error":"bad request"}')
+            send_http_response(
+                client,
+                "400 Bad Request",
+                json.dumps({"error": str(error)}),
+            )
         except Exception:
             pass
         return None

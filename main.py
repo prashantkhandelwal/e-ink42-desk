@@ -202,11 +202,16 @@ def get_feed_headlines(feed_source, limit=10):
 
 def url_encode(value):
     encoded = ""
-    for character in value:
-        if character.isalnum() or character in "-_.~":
-            encoded += character
+    for byte in value.encode("utf-8"):
+        if (
+            48 <= byte <= 57
+            or 65 <= byte <= 90
+            or 97 <= byte <= 122
+            or byte in (45, 46, 95, 126)
+        ):
+            encoded += chr(byte)
         else:
-            encoded += "%{:02X}".format(ord(character))
+            encoded += "%{:02X}".format(byte)
     return encoded
 
 
