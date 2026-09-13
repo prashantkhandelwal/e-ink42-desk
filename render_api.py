@@ -1,6 +1,6 @@
 import socket
 
-from config_loader import API_MAX_REQUEST_BYTES, API_PORT
+from config_loader import API_MAX_REQUEST_BYTES, API_PORT, CONFIG, save_config
 
 try:
     import ujson as json
@@ -16,17 +16,81 @@ def create_api_server(wlan):
     server.listen(1)
     server.setblocking(False)
     print("Render API: http://{}:{}/render".format(wlan.ifconfig()[0], API_PORT))
+    print("Settings: http://{}:{}/settings".format(wlan.ifconfig()[0], API_PORT))
     return server
 
 
-def send_http_response(client, status, body):
+def send_http_response(client, status, body, content_type="application/json"):
+    encoded_body = body.encode()
     response = (
         "HTTP/1.1 {}\r\n"
-        "Content-Type: application/json\r\n"
+        "Content-Type: {}; charset=utf-8\r\n"
         "Content-Length: {}\r\n"
         "Connection: close\r\n\r\n{}"
-    ).format(status, len(body), body)
+    ).format(status, content_type, len(encoded_body), body)
     client.send(response.encode())
+
+
+def escape_html(value):
+    return (
+        str(value)
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+    )
+
+
+def settings_page(saved=False):
+    notice = '<p class="notice">Settings saved and display refresh queued.</p>' if saved else ""
+    with open("settings.html", "r") as html_file:
+        page = html_file.read()
+    return (
+        page.replace("{{notice}}", notice)
+        .replace("{{stock_symbol}}", escape_html(CONFIG.get("stock_symbol", "MSFT")))
+        .replace("{{location_name}}", escape_html(CONFIG.get("location_name", "")))
+    )
+
+
+def url_decode(value):
+    result = bytearray()
+    index = 0
+    while index < len(value):
+        if value[index] == "+":
+            result.append(32)
+        elif value[index] == "%" and index + 2 < len(value):
+            result.append(int(value[index + 1:index + 3], 16))
+            index += 2
+        else:
+            result.extend(value[index].encode("utf-8"))
+        index += 1
+    return result.decode("utf-8")
+
+
+def parse_settings(body):
+    fields = {}
+    for pair in body.decode().split("&"):
+        name, separator, value = pair.partition("=")
+        if separator:
+            fields[url_decode(name)] = url_decode(value)
+
+    symbol = fields.get("stock_symbol", "").strip().upper()
+    if not symbol or len(symbol) > 10 or not all(
+        character.isalnum() or character in ".-" for character in symbol
+    ):
+        raise ValueError("Invalid stock symbol")
+
+    location_name = fields.get("location_name", "").strip()
+    if len(location_name) > 48 or any(
+        ord(character) < 32 or 127 <= ord(character) <= 159
+        for character in location_name
+    ):
+        raise ValueError("Invalid location name")
+
+    return {
+        "stock_symbol": symbol,
+        "location_name": location_name,
+    }
 
 
 def read_http_request(client):
@@ -69,9 +133,18 @@ def poll_render_api(server):
     try:
         client.settimeout(1)
         method, path, body = read_http_request(client)
+        path = path.split("?", 1)[0]
         if method == "GET" and path == "/health":
             send_http_response(client, "200 OK", '{"status":"ok"}')
             return None
+        if method == "GET" and path in ("/", "/settings"):
+            send_http_response(client, "200 OK", settings_page(), "text/html")
+            return None
+        if method == "POST" and path == "/settings":
+            settings = parse_settings(body)
+            save_config(settings)
+            send_http_response(client, "200 OK", settings_page(True), "text/html")
+            return {"type": "settings", "settings": settings}
         if method != "POST" or path != "/render":
             send_http_response(client, "404 Not Found", '{"error":"not found"}')
             return None
@@ -84,7 +157,7 @@ def poll_render_api(server):
         if not isinstance(lines, list) and not isinstance(data, dict):
             raise ValueError("Expected a lines array or data object")
         send_http_response(client, "202 Accepted", '{"status":"rendering"}')
-        return payload
+        return {"type": "render", "payload": payload}
     except Exception as error:
         print("API request failed:", error)
         try:

@@ -4,27 +4,49 @@ except ImportError:
     import json
 
 
-with open("config.json", "r") as config_file:
-    config = json.loads(config_file.read())
+CONFIG_PATH = "config.json"
 
-WIFI_SSID = config["wifi_ssid"]
-WIFI_PASSWORD = config["wifi_password"]
-OPENWEATHER_API_KEY = config["openweather_api_key"]
 
-DATA_UPDATE_INTERVAL_MS = config["data_update_interval_ms"]
-TIME_SYNC_INTERVAL_MS = config["time_sync_interval_ms"]
-NEWS_UPDATE_INTERVAL_MS = config["news_update_interval_ms"]
+def load_config():
+    with open(CONFIG_PATH, "r") as config_file:
+        return json.loads(config_file.read())
 
-QUOTE_URL = config["quote_url"]
-NEWS_URL = config["news_url"]
-LOCATION_URL = config["location_url"]
-OPENWEATHER_URL = config["openweather_url"]
-REQUEST_HEADERS = config["request_headers"]
 
-WIFI_CONNECTED_IMAGE = config["wifi_connected_image"]
-WIFI_DISCONNECTED_IMAGE = config["wifi_disconnected_image"]
-KEY0_PIN = config["key0_pin"]
-KEY1_PIN = config["key1_pin"]
+def save_config(updates):
+    updated_config = CONFIG.copy()
+    updated_config.update(updates)
+    with open(CONFIG_PATH, "w") as config_file:
+        config_file.write(json.dumps(updated_config))
+    CONFIG.update(updates)
 
-API_PORT = config["api_port"]
-API_MAX_REQUEST_BYTES = config["api_max_request_bytes"]
+
+CONFIG = load_config()
+
+WIFI_SSID = CONFIG["wifi_ssid"]
+WIFI_PASSWORD = CONFIG["wifi_password"]
+OPENWEATHER_API_KEY = CONFIG["openweather_api_key"]
+
+DATA_UPDATE_INTERVAL_MS = CONFIG["data_update_interval_ms"]
+TIME_SYNC_INTERVAL_MS = CONFIG["time_sync_interval_ms"]
+NEWS_UPDATE_INTERVAL_MS = CONFIG["news_update_interval_ms"]
+
+QUOTE_URL = CONFIG["quote_url"]
+FEEDS = CONFIG["feeds"]
+LOCATION_URL = CONFIG["location_url"]
+OPENWEATHER_URL = CONFIG["openweather_url"]
+REQUEST_HEADERS = CONFIG["request_headers"]
+
+WIFI_CONNECTED_IMAGE = CONFIG["wifi_connected_image"]
+WIFI_DISCONNECTED_IMAGE = CONFIG["wifi_disconnected_image"]
+KEY0_PIN = CONFIG["key0_pin"]
+KEY1_PIN = CONFIG["key1_pin"]
+
+API_PORT = CONFIG["api_port"]
+API_MAX_REQUEST_BYTES = CONFIG["api_max_request_bytes"]
+
+
+def reload_feeds():
+    latest_config = load_config()
+    latest_feeds = latest_config["feeds"]
+    CONFIG.update(latest_config)
+    FEEDS[:] = latest_feeds

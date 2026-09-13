@@ -70,12 +70,8 @@ class EPD_4in2:
         self.spi.init(baudrate=4_000_000)
 
         self.buffer_1Gray = bytearray(self.height * self.width // 8)
-        self.buffer_4Gray = bytearray(self.height * self.width // 4)
         self.image1Gray = framebuf.FrameBuffer(
             self.buffer_1Gray, self.width, self.height, framebuf.MONO_HLSB
-        )
-        self.image4Gray = framebuf.FrameBuffer(
-            self.buffer_4Gray, self.width, self.height, framebuf.GS2_HMSB
         )
 
         self.EPD_4IN2_V2_Init()
