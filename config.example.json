@@ -1,0 +1,21 @@
+{
+  "wifi_ssid": "your-wifi-name",
+  "wifi_password": "your-wifi-password",
+  "openweather_api_key": "your-openweather-api-key",
+  "data_update_interval_ms": 900000,
+  "time_sync_interval_ms": 21600000,
+  "news_update_interval_ms": 900000,
+  "quote_url": "https://quote.cnbc.com/quote-html-webservice/quote.htm?symbols=MSFT&output=json",
+  "news_url": "https://feeds.bbci.co.uk/news/rss.xml",
+  "location_url": "https://ipwho.is/",
+  "openweather_url": "https://api.openweathermap.org/data/2.5/{}",
+  "request_headers": {
+    "User-Agent": "Mozilla/5.0"
+  },
+  "wifi_connected_image": "img/connected.bmp",
+  "wifi_disconnected_image": "img/disconnected.bmp",
+  "key0_pin": 15,
+  "key1_pin": 17,
+  "api_port": 80,
+  "api_max_request_bytes": 4096
+}
