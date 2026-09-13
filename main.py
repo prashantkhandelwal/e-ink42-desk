@@ -364,6 +364,17 @@ def main():
                 last_data_update = None
                 current_view = VIEW_DASHBOARD
                 force_render = True
+            elif requested.get("type") == "dashboard":
+                current_view = VIEW_DASHBOARD
+                force_render = True
+            elif requested.get("type") == "feed":
+                selected_feed_index = requested.get("feed_index", -1)
+                if 0 <= selected_feed_index < len(FEEDS):
+                    feed_index = selected_feed_index
+                    headlines = None
+                    last_feed_update = None
+                    current_view = VIEW_FEED
+                    force_render = True
             elif requested.get("type") == "render":
                 custom_payload = requested["payload"]
                 current_view = VIEW_CUSTOM

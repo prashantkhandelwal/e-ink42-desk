@@ -53,12 +53,19 @@ def escape_html(value):
 
 def settings_page(saved=False):
     notice = '<p class="notice">Settings saved and display refresh queued.</p>' if saved else ""
+    feed_buttons = "".join(
+        '<button class="feed-button" type="submit" name="feed_index" value="{}">{}</button>'.format(
+            index, escape_html(feed["name"])
+        )
+        for index, feed in enumerate(CONFIG.get("feeds", []))
+    )
     with open("settings.html", "r") as html_file:
         page = html_file.read()
     return (
         page.replace("{{notice}}", notice)
         .replace("{{stock_symbol}}", escape_html(CONFIG.get("stock_symbol", "MSFT")))
         .replace("{{location_name}}", escape_html(CONFIG.get("location_name", "")))
+        .replace("{{feed_buttons}}", feed_buttons)
     )
 
 
@@ -102,6 +109,22 @@ def parse_settings(body):
         "stock_symbol": symbol,
         "location_name": location_name,
     }
+
+
+def parse_feed_index(body):
+    fields = {}
+    for pair in body.decode().split("&"):
+        name, separator, value = pair.partition("=")
+        if separator:
+            fields[url_decode(name)] = url_decode(value)
+
+    try:
+        feed_index = int(fields.get("feed_index", ""))
+    except ValueError:
+        raise ValueError("Invalid feed selection")
+    if feed_index < 0 or feed_index >= len(CONFIG.get("feeds", [])):
+        raise ValueError("Invalid feed selection")
+    return feed_index
 
 
 def read_http_request(client):
@@ -160,6 +183,13 @@ def poll_render_api(server):
             save_config(settings)
             send_http_redirect(client, "/settings?saved=1")
             return {"type": "settings", "settings": settings}
+        if method == "POST" and path == "/dashboard":
+            send_http_redirect(client, "/settings")
+            return {"type": "dashboard"}
+        if method == "POST" and path == "/feed":
+            feed_index = parse_feed_index(body)
+            send_http_redirect(client, "/settings")
+            return {"type": "feed", "feed_index": feed_index}
         if method != "POST" or path != "/render":
             send_http_response(client, "404 Not Found", '{"error":"not found"}')
             return None

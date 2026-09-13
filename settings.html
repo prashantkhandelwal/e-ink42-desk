@@ -10,6 +10,7 @@
     body { margin: 0; background: var(--paper); color: var(--ink); font: 16px Georgia, serif; }
     main { width: min(620px, calc(100% - 32px)); margin: 48px auto; }
     h1 { margin: 0 0 8px; font-size: 32px; letter-spacing: 0; }
+    h2 { margin: 0 0 16px; font-size: 22px; letter-spacing: 0; }
     p { line-height: 1.5; }
     .panel { padding: 24px 0; border-top: 4px solid var(--ink); border-bottom: 1px solid var(--line); }
     label { display: block; margin: 18px 0 6px; font-weight: bold; }
@@ -17,7 +18,12 @@
     .hint { color: #5b625f; font-size: 14px; }
     .notice { padding: 10px; border-left: 4px solid #397b58; background: #e4eee6; }
     button { margin-top: 24px; padding: 12px 18px; border: 0; border-radius: 3px; background: var(--accent); color: #fff; font: bold 16px Georgia, serif; cursor: pointer; }
-    @media (max-width: 480px) { main { margin: 24px auto; } }
+    .dashboard-button { width: 100%; margin: 12px 0 24px; background: #397b58; }
+    .feed-panel { padding: 24px 0; border-bottom: 1px solid var(--line); }
+    .feed-buttons { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+    .feed-button { width: 100%; margin: 0; background: var(--ink); text-align: left; }
+    .feed-button:hover { background: var(--accent); }
+    @media (max-width: 480px) { main { margin: 24px auto; } .feed-buttons { grid-template-columns: 1fr; } }
   </style>
 </head>
 <body>
@@ -25,6 +31,9 @@
     <h1>E-Ink Desk</h1>
     <p>Dashboard settings</p>
     {{notice}}
+    <form method="post" action="/dashboard">
+      <button class="dashboard-button" type="submit">Dashboard</button>
+    </form>
     <form class="panel" method="post" action="/settings">
       <label for="stock_symbol">Stock symbol</label>
       <input id="stock_symbol" name="stock_symbol" maxlength="10" required value="{{stock_symbol}}">
@@ -33,6 +42,12 @@
       <p class="hint">Enter a city and optional country code, or leave blank for automatic detection.</p>
       <button type="submit">Save and refresh</button>
     </form>
+    <section class="feed-panel">
+      <h2>Feeds</h2>
+      <form class="feed-buttons" method="post" action="/feed">
+        {{feed_buttons}}
+      </form>
+    </section>
   </main>
 </body>
 </html>
