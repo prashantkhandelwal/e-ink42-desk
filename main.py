@@ -259,13 +259,13 @@ def update_local_clock(weather):
 def wait_for_action(key_dashboard, key_feed, api_server, timeout_seconds):
     deadline = time.ticks_add(time.ticks_ms(), timeout_seconds * 1000)
     while time.ticks_diff(deadline, time.ticks_ms()) > 0:
-        if key_dashboard.value() == 0:
+        if key_dashboard is not None and key_dashboard.value() == 0:
             time.sleep_ms(30)
             if key_dashboard.value() == 0:
                 while key_dashboard.value() == 0:
                     time.sleep_ms(20)
                 return VIEW_DASHBOARD
-        if key_feed.value() == 0:
+        if key_feed is not None and key_feed.value() == 0:
             time.sleep_ms(30)
             if key_feed.value() == 0:
                 while key_feed.value() == 0:
@@ -278,10 +278,16 @@ def wait_for_action(key_dashboard, key_feed, api_server, timeout_seconds):
     return None
 
 
+def service_render_api(api_server, pending_events):
+    event = poll_render_api(api_server)
+    if event is not None:
+        pending_events.append(event)
+
+
 def main():
-    display = EPD_4in2()
-    key_dashboard = Pin(KEY0_PIN, Pin.IN, Pin.PULL_UP)
-    key_feed = Pin(KEY1_PIN, Pin.IN, Pin.PULL_UP)
+    display = None
+    key_dashboard = None
+    key_feed = None
     quote = None
     weather = None
     headlines = None
@@ -295,13 +301,24 @@ def main():
     wlan = None
     api_server = None
     custom_payload = None
+    pending_api_events = []
 
     while True:
         local_timestamp = None
+        display_initialization_attempted = False
         try:
             wlan = connect_wifi()
             if api_server is None:
                 api_server = create_api_server(wlan)
+            service_render_api(api_server, pending_api_events)
+            if key_dashboard is None:
+                key_dashboard = Pin(KEY0_PIN, Pin.IN, Pin.PULL_UP)
+            if key_feed is None:
+                key_feed = Pin(KEY1_PIN, Pin.IN, Pin.PULL_UP)
+            if display is None:
+                display_initialization_attempted = True
+                display = EPD_4in2()
+                display.EPD_4IN2_V2_Clear()
             now = time.ticks_ms()
             time_sync_is_stale = last_time_sync is None or time.ticks_diff(now, last_time_sync) >= TIME_SYNC_INTERVAL_MS
             if time_sync_is_stale:
@@ -314,12 +331,15 @@ def main():
                     if last_time_sync is None:
                         raise
                     print("Clock resync failed; using RTC:", error)
+                service_render_api(api_server, pending_api_events)
 
             data_is_stale = last_data_update is None or time.ticks_diff(now, last_data_update) >= DATA_UPDATE_INTERVAL_MS
             if current_view == VIEW_DASHBOARD and data_is_stale:
                 symbol = CONFIG.get("stock_symbol", "MSFT")
                 quote = get_stock_quote(symbol)
+                service_render_api(api_server, pending_api_events)
                 weather = get_local_weather(get_current_location())
+                service_render_api(api_server, pending_api_events)
                 last_data_update = time.ticks_ms()
                 print("{}: {:.2f}".format(symbol, quote["price"]))
 
@@ -346,17 +366,40 @@ def main():
                     show_feed(display, FEEDS[feed_index]["name"], headlines, feed_index, len(FEEDS), wifi_connected, force_render)
             elif force_render or wifi_state_changed:
                 show_custom_data(display, custom_payload, wifi_connected, force_render)
+            service_render_api(api_server, pending_api_events)
             last_wifi_connected = wifi_connected
             force_render = False
         except Exception as error:
             print("Update failed:", error)
             wifi_connected = wlan is not None and wlan.isconnected()
-            show_error(display, error, wifi_connected)
+            if display is None and not display_initialization_attempted:
+                try:
+                    display = EPD_4in2()
+                    display.EPD_4IN2_V2_Clear()
+                except Exception as display_error:
+                    print("Display initialization failed:", display_error)
+            if display is not None:
+                try:
+                    show_error(display, error, wifi_connected)
+                except Exception as display_error:
+                    print("Error display failed:", display_error)
             last_wifi_connected = wifi_connected
 
         gc.collect()
-        wait_seconds = 60 if local_timestamp is None else 60 - local_timestamp % 60
-        requested = wait_for_action(key_dashboard, key_feed, api_server, wait_seconds)
+        if (
+            display is None
+            or api_server is None
+            or wlan is None
+            or not wlan.isconnected()
+        ):
+            wait_seconds = 5
+        else:
+            wait_seconds = 60 if local_timestamp is None else 60 - local_timestamp % 60
+        requested = (
+            pending_api_events.pop(0)
+            if pending_api_events
+            else wait_for_action(key_dashboard, key_feed, api_server, wait_seconds)
+        )
         if isinstance(requested, dict):
             if requested.get("type") == "settings":
                 quote = None

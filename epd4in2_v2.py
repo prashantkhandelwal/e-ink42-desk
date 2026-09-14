@@ -7,6 +7,8 @@ import utime
 EPD_WIDTH = 400
 EPD_HEIGHT = 300
 
+SCK_PIN = 10
+DIN_PIN = 11
 RST_PIN = 12
 DC_PIN = 8
 CS_PIN = 9
@@ -52,10 +54,9 @@ LUT_ALL = [
 
 class EPD_4in2:
     def __init__(self):
-        self.reset_pin = Pin(RST_PIN, Pin.OUT)
+        self.reset_pin = Pin(RST_PIN, Pin.OUT, value=1)
         self.busy_pin = Pin(BUSY_PIN, Pin.IN, Pin.PULL_UP)
-        self.cs_pin = Pin(CS_PIN, Pin.OUT)
-        self.dc_pin = Pin(DC_PIN, Pin.OUT)
+        self.cs_pin = Pin(CS_PIN, Pin.OUT, value=1)
         self.width = EPD_WIDTH
         self.height = EPD_HEIGHT
         self.Seconds_1_5S = 0
@@ -66,8 +67,14 @@ class EPD_4in2:
         self.darkgray = 0xAA
         self.grayish = 0x55
 
-        self.spi = SPI(1)
-        self.spi.init(baudrate=4_000_000)
+        utime.sleep_ms(1000)
+        self.spi = SPI(
+            1,
+            baudrate=4_000_000,
+            sck=Pin(SCK_PIN),
+            mosi=Pin(DIN_PIN),
+        )
+        self.dc_pin = Pin(DC_PIN, Pin.OUT, value=0)
 
         self.buffer_1Gray = bytearray(self.height * self.width // 8)
         self.image1Gray = framebuf.FrameBuffer(
@@ -75,7 +82,6 @@ class EPD_4in2:
         )
 
         self.EPD_4IN2_V2_Init()
-        self.EPD_4IN2_V2_Clear()
         utime.sleep_ms(500)
 
     def digital_write(self, pin, value):
@@ -94,13 +100,12 @@ class EPD_4in2:
         self.digital_write(self.reset_pin, 0)
 
     def reset(self):
-        for _ in range(3):
-            self.digital_write(self.reset_pin, 1)
-            self.delay_ms(20)
-            self.digital_write(self.reset_pin, 0)
-            self.delay_ms(2)
         self.digital_write(self.reset_pin, 1)
-        self.delay_ms(20)
+        self.delay_ms(200)
+        self.digital_write(self.reset_pin, 0)
+        self.delay_ms(10)
+        self.digital_write(self.reset_pin, 1)
+        self.delay_ms(200)
 
     def send_command(self, command):
         self.digital_write(self.dc_pin, 0)
@@ -120,9 +125,12 @@ class EPD_4in2:
         self.spi.write(bytearray(buffer))
         self.digital_write(self.cs_pin, 1)
 
-    def ReadBusy(self):
+    def ReadBusy(self, timeout_ms=15_000):
         print("e-Paper busy")
+        deadline = utime.ticks_add(utime.ticks_ms(), timeout_ms)
         while self.digital_read(self.busy_pin) == 1:
+            if utime.ticks_diff(deadline, utime.ticks_ms()) <= 0:
+                raise RuntimeError("e-Paper busy timed out")
             self.delay_ms(100)
         print("e-Paper busy release")
 
@@ -224,11 +232,10 @@ class EPD_4in2:
         self._set_ram_area()
 
     def EPD_4IN2_V2_Clear(self):
-        wide = (self.width + 7) // 8
+        self.image1Gray.fill(self.white)
         for command in (0x24, 0x26):
             self.send_command(command)
-            for _ in range(wide):
-                self.send_data1([0xFF] * self.height)
+            self.send_data1(self.buffer_1Gray)
         self.TurnOnDisplay()
 
     def EPD_4IN2_V2_Display(self, image):

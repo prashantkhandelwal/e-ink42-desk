@@ -102,8 +102,6 @@ def wrap_text(text, width=44, max_lines=3):
 
 def refresh_full(display, clear_first=False):
     display.EPD_4IN2_V2_Init()
-    if clear_first:
-        display.EPD_4IN2_V2_Clear()
     display.EPD_4IN2_V2_Display(display.buffer_1Gray)
 
 

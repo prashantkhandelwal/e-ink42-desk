@@ -20,15 +20,25 @@ def create_api_server(wlan):
     return server
 
 
+def send_all(client, data):
+    offset = 0
+    while offset < len(data):
+        sent = client.send(data[offset:offset + 1024])
+        if not sent:
+            raise OSError("Socket closed while sending response")
+        offset += sent
+
+
 def send_http_response(client, status, body, content_type="application/json"):
     encoded_body = body.encode()
-    response = (
+    headers = (
         "HTTP/1.1 {}\r\n"
         "Content-Type: {}; charset=utf-8\r\n"
         "Content-Length: {}\r\n"
-        "Connection: close\r\n\r\n{}"
-    ).format(status, content_type, len(encoded_body), body)
-    client.send(response.encode())
+        "Connection: close\r\n\r\n"
+    ).format(status, content_type, len(encoded_body))
+    send_all(client, headers.encode())
+    send_all(client, encoded_body)
 
 
 def send_http_redirect(client, location):
@@ -38,7 +48,7 @@ def send_http_redirect(client, location):
         "Content-Length: 0\r\n"
         "Connection: close\r\n\r\n"
     ).format(location)
-    client.send(response.encode())
+    send_all(client, response.encode())
 
 
 def escape_html(value):
