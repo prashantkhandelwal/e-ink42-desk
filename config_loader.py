@@ -36,8 +36,6 @@ LOCATION_URL = CONFIG["location_url"]
 OPENWEATHER_URL = CONFIG["openweather_url"]
 REQUEST_HEADERS = CONFIG["request_headers"]
 
-WIFI_CONNECTED_IMAGE = CONFIG["wifi_connected_image"]
-WIFI_DISCONNECTED_IMAGE = CONFIG["wifi_disconnected_image"]
 KEY0_PIN = CONFIG["key0_pin"]
 KEY1_PIN = CONFIG["key1_pin"]
 

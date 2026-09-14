@@ -1,12 +1,11 @@
-from screens.common import clean_text, draw_bold_text, draw_wifi_icon, refresh_full, wrap_text
+from screens.common import clean_text, draw_bold_text, refresh_full, wrap_text
 
 
-def show_custom_data(display, payload, wifi_connected, clear_first=False):
+def show_custom_data(display, payload, clear_first=False):
     image = display.image1Gray
     image.fill(display.white)
     title = clean_text(str(payload.get("title", "MICROPYTHON DATA")))[:36]
     draw_bold_text(image, title, 20, 20, display.black)
-    draw_wifi_icon(display, wifi_connected)
     image.hline(20, 40, 360, display.black)
 
     lines = payload.get("lines")

@@ -2,7 +2,6 @@ from screens.common import (
     draw_bold_text,
     draw_large_text,
     draw_scaled_text,
-    draw_wifi_icon,
     refresh_full,
 )
 
@@ -51,7 +50,7 @@ def draw_trend_icon(image, x, y, color, positive):
             image.hline(x + row, y + row, 15 - row * 2, color)
 
 
-def show_dashboard(display, symbol, quote, weather, wifi_connected, partial=False, clear_first=False):
+def show_dashboard(display, symbol, quote, weather, partial=False, clear_first=False):
     image = display.image1Gray
     image.fill(display.white)
     change = quote["price"] - quote["previous_close"]
@@ -61,7 +60,6 @@ def show_dashboard(display, symbol, quote, weather, wifi_connected, partial=Fals
     image.vline(219, 24, 48, display.black)
     draw_trend_icon(image, 235, 42, display.black, change >= 0)
     draw_bold_text(image, "{:+.2f} ({:+.2f}%)".format(change, percent), 256, 42, display.black)
-    draw_wifi_icon(display, wifi_connected)
     image.hline(12, 87, 376, display.black)
 
     draw_location_icon(image, 20, 103, display.black)

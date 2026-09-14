@@ -1,6 +1,7 @@
-from config_loader import WIFI_CONNECTED_IMAGE, WIFI_DISCONNECTED_IMAGE
+from xglcd_font import XglcdFont
 
 
+UI_FONT = XglcdFont("fonts/consolas.c", 6, 11)
 DIGIT_FONT = {
     "0": (0x0E, 0x11, 0x13, 0x15, 0x19, 0x11, 0x0E),
     "1": (0x04, 0x0C, 0x04, 0x04, 0x04, 0x04, 0x0E),
@@ -69,17 +70,24 @@ def draw_large_text(image, text, center_x, y, color, scale=6):
     draw_scaled_text(image, text, center_x - text_width // 2, y, color, scale)
 
 
+def draw_text(image, text, x, y):
+    for character in text:
+        letter, width, _ = UI_FONT.get_letter(character)
+        if width == 0:
+            continue
+        image.blit(letter, x, y)
+        x += width + 1
+
+
+def fit_text(text, max_width):
+    while text and UI_FONT.measure_text(text) > max_width:
+        text = text[:-1]
+    return text
+
+
 def draw_bold_text(image, text, x, y, color):
     image.text(text, x, y, color)
     image.text(text, x + 1, y, color)
-
-
-def draw_wifi_icon(display, connected):
-    image_file = WIFI_CONNECTED_IMAGE if connected else WIFI_DISCONNECTED_IMAGE
-    try:
-        display.draw_bmp_img(image_file, 368, 6)
-    except (OSError, ValueError) as error:
-        print("Wi-Fi icon failed:", error)
 
 
 def wrap_text(text, width=44, max_lines=3):
@@ -105,9 +113,8 @@ def refresh_full(display, clear_first=False):
     display.EPD_4IN2_V2_Display(display.buffer_1Gray)
 
 
-def show_error(display, message, wifi_connected):
+def show_error(display, message):
     image = display.image1Gray
     image.fill(display.white)
     image.text(str(message)[:45], 20, 20, display.black)
-    draw_wifi_icon(display, wifi_connected)
     refresh_full(display, True)

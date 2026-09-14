@@ -42,13 +42,28 @@ ACTION_NEXT_FEED = 3
 WEEKDAYS = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
 
 
+def wifi_is_connected(wlan):
+    if wlan is None:
+        return False
+    try:
+        if wlan.isconnected():
+            return True
+    except OSError:
+        pass
+    try:
+        address = wlan.ifconfig()[0]
+        return bool(address and address != "0.0.0.0")
+    except (OSError, IndexError):
+        return False
+
+
 def connect_wifi():
     wlan = network.WLAN(network.STA_IF)
     wlan.active(True)
-    if not wlan.isconnected():
+    if not wifi_is_connected(wlan):
         wlan.connect(WIFI_SSID, WIFI_PASSWORD)
         deadline = time.ticks_add(time.ticks_ms(), 20_000)
-        while not wlan.isconnected():
+        while not wifi_is_connected(wlan):
             if time.ticks_diff(deadline, time.ticks_ms()) <= 0:
                 raise RuntimeError("Wi-Fi connection timed out")
             time.sleep_ms(250)
@@ -295,7 +310,6 @@ def main():
     last_data_update = None
     last_feed_update = None
     last_time_sync = None
-    last_wifi_connected = None
     current_view = VIEW_DASHBOARD
     force_render = True
     wlan = None
@@ -345,16 +359,13 @@ def main():
 
             if weather is not None:
                 local_timestamp = update_local_clock(weather)
-            wifi_connected = wlan.isconnected()
-            wifi_state_changed = last_wifi_connected is not None and wifi_connected != last_wifi_connected
             if current_view == VIEW_DASHBOARD:
                 show_dashboard(
                     display,
                     CONFIG.get("stock_symbol", "MSFT"),
                     quote,
                     weather,
-                    wifi_connected,
-                    partial=not data_is_stale and not wifi_state_changed and not force_render,
+                    partial=not data_is_stale and not force_render,
                     clear_first=force_render,
                 )
             elif current_view == VIEW_FEED:
@@ -362,16 +373,14 @@ def main():
                 if feed_is_stale:
                     headlines = get_feed_headlines(FEEDS[feed_index])
                     last_feed_update = time.ticks_ms()
-                if force_render or feed_is_stale or wifi_state_changed:
-                    show_feed(display, FEEDS[feed_index]["name"], headlines, feed_index, len(FEEDS), wifi_connected, force_render)
-            elif force_render or wifi_state_changed:
-                show_custom_data(display, custom_payload, wifi_connected, force_render)
+                if force_render or feed_is_stale:
+                    show_feed(display, FEEDS[feed_index]["name"], headlines, feed_index, len(FEEDS), force_render)
+            elif force_render:
+                show_custom_data(display, custom_payload, force_render)
             service_render_api(api_server, pending_api_events)
-            last_wifi_connected = wifi_connected
             force_render = False
         except Exception as error:
             print("Update failed:", error)
-            wifi_connected = wlan is not None and wlan.isconnected()
             if display is None and not display_initialization_attempted:
                 try:
                     display = EPD_4in2()
@@ -380,17 +389,16 @@ def main():
                     print("Display initialization failed:", display_error)
             if display is not None:
                 try:
-                    show_error(display, error, wifi_connected)
+                    show_error(display, error)
                 except Exception as display_error:
                     print("Error display failed:", display_error)
-            last_wifi_connected = wifi_connected
 
         gc.collect()
         if (
             display is None
             or api_server is None
             or wlan is None
-            or not wlan.isconnected()
+            or not wifi_is_connected(wlan)
         ):
             wait_seconds = 5
         else:

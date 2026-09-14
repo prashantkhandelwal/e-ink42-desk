@@ -22,8 +22,6 @@
   "request_headers": {
     "User-Agent": "Mozilla/5.0"
   },
-  "wifi_connected_image": "img/connected.bmp",
-  "wifi_disconnected_image": "img/disconnected.bmp",
   "key0_pin": 15,
   "key1_pin": 17,
   "api_port": 80,
