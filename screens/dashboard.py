@@ -3,6 +3,7 @@ from screens.common import (
     draw_large_text,
     draw_scaled_text,
     refresh_full,
+    refresh_partial,
 )
 
 
@@ -79,9 +80,8 @@ def show_dashboard(display, symbol, quote, weather, partial=False, clear_first=F
 
     if partial:
         image.fill_rect(CLOCK_X, CLOCK_Y, CLOCK_WIDTH, CLOCK_HEIGHT, display.white)
-        display.EPD_4IN2_V2_PartialDisplay(display.buffer_1Gray)
         draw_large_text(image, weather["clock"], 200, 224, display.black, 8)
-        display.EPD_4IN2_V2_PartialDisplay(display.buffer_1Gray)
+        refresh_partial(display)
     else:
         draw_large_text(image, weather["clock"], 200, 224, display.black, 8)
         refresh_full(display, clear_first)

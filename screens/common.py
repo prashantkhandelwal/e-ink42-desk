@@ -109,8 +109,22 @@ def wrap_text(text, width=44, max_lines=3):
 
 
 def refresh_full(display, clear_first=False):
-    display.EPD_4IN2_V2_Init()
-    display.EPD_4IN2_V2_Display(display.buffer_1Gray)
+    try:
+        display.EPD_4IN2_V2_Init()
+        display.EPD_4IN2_V2_Display(display.buffer_1Gray)
+    except Exception as error:
+        print("Full refresh failed; retrying after reset:", error)
+        display.EPD_4IN2_V2_Init()
+        display.EPD_4IN2_V2_Display(display.buffer_1Gray)
+
+
+def refresh_partial(display):
+    try:
+        display.EPD_4IN2_V2_PartialDisplay(display.buffer_1Gray)
+    except Exception as error:
+        print("Partial refresh failed; recovering with full refresh:", error)
+        display.EPD_4IN2_V2_Init()
+        display.EPD_4IN2_V2_Display(display.buffer_1Gray)
 
 
 def show_error(display, message):

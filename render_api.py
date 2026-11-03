@@ -13,7 +13,7 @@ def create_api_server(wlan):
     server = socket.socket()
     server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     server.bind(address)
-    server.listen(1)
+    server.listen(4)
     server.setblocking(False)
     print("Render API: http://{}:{}/render".format(wlan.ifconfig()[0], API_PORT))
     print("Settings: http://{}:{}/settings".format(wlan.ifconfig()[0], API_PORT))
@@ -41,14 +41,15 @@ def send_http_response(client, status, body, content_type="application/json"):
     send_all(client, encoded_body)
 
 
-def send_http_redirect(client, location):
-    response = (
-        "HTTP/1.1 303 See Other\r\n"
-        "Location: {}\r\n"
-        "Content-Length: 0\r\n"
-        "Connection: close\r\n\r\n"
-    ).format(location)
-    send_all(client, response.encode())
+def send_action_response(client, message):
+    body = (
+        "<!doctype html><html><head><meta charset=\"utf-8\">"
+        "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
+        "<title>E-Ink Desk</title></head><body>"
+        "<p>{}</p><p><a href=\"/settings\">Back to settings</a></p>"
+        "</body></html>"
+    ).format(escape_html(message))
+    send_http_response(client, "202 Accepted", body, "text/html")
 
 
 def escape_html(value):
@@ -61,8 +62,14 @@ def escape_html(value):
     )
 
 
-def settings_page(saved=False):
-    notice = '<p class="notice">Settings saved and display refresh queued.</p>' if saved else ""
+def settings_page(saved=False, notice_text=None):
+    if notice_text is None and saved:
+        notice_text = "Settings saved and display refresh queued."
+    notice = (
+        '<p class="notice">{}</p>'.format(escape_html(notice_text))
+        if notice_text
+        else ""
+    )
     feed_buttons = "".join(
         '<button class="feed-button" type="submit" name="feed_index" value="{}">{}</button>'.format(
             index, escape_html(feed["name"])
@@ -176,9 +183,11 @@ def poll_render_api(server):
     except OSError:
         return None
 
+    stage = "reading request"
     try:
-        client.settimeout(5)
+        client.settimeout(15)
         method, path, body = read_http_request(client)
+        stage = "sending response"
         path_with_query = path
         path = path.split("?", 1)[0]
         if method == "GET" and path == "/health":
@@ -191,14 +200,14 @@ def poll_render_api(server):
         if method == "POST" and path == "/settings":
             settings = parse_settings(body)
             save_config(settings)
-            send_http_redirect(client, "/settings?saved=1")
+            send_action_response(client, "Settings saved. Display update queued.")
             return {"type": "settings", "settings": settings}
         if method == "POST" and path == "/dashboard":
-            send_http_redirect(client, "/settings")
+            send_action_response(client, "Dashboard display update queued.")
             return {"type": "dashboard"}
         if method == "POST" and path == "/feed":
             feed_index = parse_feed_index(body)
-            send_http_redirect(client, "/settings")
+            send_action_response(client, "Feed selected. Display update queued.")
             return {"type": "feed", "feed_index": feed_index}
         if method != "POST" or path != "/render":
             send_http_response(client, "404 Not Found", '{"error":"not found"}')
@@ -214,12 +223,12 @@ def poll_render_api(server):
         send_http_response(client, "202 Accepted", '{"status":"rendering"}')
         return {"type": "render", "payload": payload}
     except Exception as error:
-        print("API request failed:", error)
+        print("API request failed while {}: {}".format(stage, error))
         try:
             send_http_response(
                 client,
                 "400 Bad Request",
-                json.dumps({"error": str(error)}),
+                json.dumps({"error": str(error), "stage": stage}),
             )
         except Exception:
             pass

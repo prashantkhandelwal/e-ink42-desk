@@ -120,34 +120,48 @@ def synchronize_clock_with_retry(display):
 
 
 def get_stock_quote(symbol):
-    response = None
-    try:
-        response = requests.get(QUOTE_URL.format(symbol), headers=REQUEST_HEADERS)
-        if response.status_code != 200:
-            raise RuntimeError("Quote API returned HTTP {}".format(response.status_code))
-        result = response.json()["QuickQuoteResult"]["QuickQuote"][0]
-        return {
-            "price": float(result["last"]),
-            "previous_close": float(result["previous_day_closing"]),
-        }
-    finally:
-        if response is not None:
-            response.close()
+    for attempt in range(2):
+        response = None
+        try:
+            response = requests.get(QUOTE_URL.format(symbol), headers=REQUEST_HEADERS)
+            if response.status_code != 200:
+                raise RuntimeError("Quote API returned HTTP {}".format(response.status_code))
+            result = response.json()["QuickQuoteResult"]["QuickQuote"][0]
+            return {
+                "price": float(result["last"]),
+                "previous_close": float(result["previous_day_closing"]),
+            }
+        except OSError as error:
+            if attempt == 1:
+                raise RuntimeError("Quote API failed after 2 attempts: {}".format(error))
+            print("Quote API request failed; retrying:", error)
+            gc.collect()
+            time.sleep_ms(500)
+        finally:
+            if response is not None:
+                response.close()
 
 
 def get_json(url, service):
-    response = None
-    try:
-        response = requests.get(url, headers=REQUEST_HEADERS)
-        if response.status_code != 200:
-            raise RuntimeError("{} returned HTTP {}".format(service, response.status_code))
-        return response.json()
-    finally:
-        if response is not None:
-            response.close()
+    for attempt in range(2):
+        response = None
+        try:
+            response = requests.get(url, headers=REQUEST_HEADERS)
+            if response.status_code != 200:
+                raise RuntimeError("{} returned HTTP {}".format(service, response.status_code))
+            return response.json()
+        except OSError as error:
+            if attempt == 1:
+                raise RuntimeError("{} failed after 2 attempts: {}".format(service, error))
+            print("{} request failed; retrying: {}".format(service, error))
+            gc.collect()
+            time.sleep_ms(500)
+        finally:
+            if response is not None:
+                response.close()
 
 
-def get_feed_headlines(feed_source, limit=10):
+def _get_feed_headlines_once(feed_source, limit):
     api_url = feed_source.get("api_url")
     if api_url:
         posts = get_json(api_url, feed_source["name"])
@@ -213,6 +227,22 @@ def get_feed_headlines(feed_source, limit=10):
     finally:
         if response is not None:
             response.close()
+
+
+def get_feed_headlines(feed_source, limit=10):
+    if feed_source.get("api_url"):
+        return _get_feed_headlines_once(feed_source, limit)
+    for attempt in range(2):
+        try:
+            return _get_feed_headlines_once(feed_source, limit)
+        except OSError as error:
+            if attempt == 1:
+                raise RuntimeError(
+                    "{} failed after 2 attempts: {}".format(feed_source["name"], error)
+                )
+            print("{} request failed; retrying: {}".format(feed_source["name"], error))
+            gc.collect()
+            time.sleep_ms(500)
 
 
 def url_encode(value):
