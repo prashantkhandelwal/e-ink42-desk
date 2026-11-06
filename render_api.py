@@ -1,4 +1,6 @@
+import errno
 import socket
+import time
 
 from config_loader import API_MAX_REQUEST_BYTES, API_PORT, CONFIG, save_config
 
@@ -6,6 +8,30 @@ try:
     import ujson as json
 except ImportError:
     import json
+
+
+API_REQUEST_IDLE_TIMEOUT_MS = 15_000
+API_MAX_PENDING_CLIENTS = 4
+WOULD_BLOCK_ERRORS = (
+    errno.EAGAIN,
+    getattr(errno, "EWOULDBLOCK", errno.EAGAIN),
+    getattr(errno, "WSAEWOULDBLOCK", errno.EAGAIN),
+)
+
+
+class PendingRequest:
+    def __init__(self, client):
+        self.client = client
+        self.data = b""
+        self.header_end = -1
+        self.content_length = 0
+        self.last_activity = time.ticks_ms()
+
+
+class RenderApiServer:
+    def __init__(self, listener):
+        self.listener = listener
+        self.pending_requests = []
 
 
 def create_api_server(wlan):
@@ -17,7 +43,7 @@ def create_api_server(wlan):
     server.setblocking(False)
     print("Render API: http://{}:{}/render".format(wlan.ifconfig()[0], API_PORT))
     print("Settings: http://{}:{}/settings".format(wlan.ifconfig()[0], API_PORT))
-    return server
+    return RenderApiServer(server)
 
 
 def send_all(client, data):
@@ -144,94 +170,129 @@ def parse_feed_index(body):
     return feed_index
 
 
-def read_http_request(client):
-    request = b""
-    content_length = 0
-    header_end = -1
+def read_http_request(request):
+    try:
+        chunk = request.client.recv(min(1024, API_MAX_REQUEST_BYTES - len(request.data)))
+    except OSError as error:
+        if not error.args or error.args[0] not in WOULD_BLOCK_ERRORS:
+            raise
+        if time.ticks_diff(time.ticks_ms(), request.last_activity) >= API_REQUEST_IDLE_TIMEOUT_MS:
+            if not request.data:
+                raise EOFError("Idle connection timed out without sending a request")
+            raise OSError(errno.ETIMEDOUT)
+        return None
 
-    while len(request) < API_MAX_REQUEST_BYTES:
-        chunk = client.recv(min(1024, API_MAX_REQUEST_BYTES - len(request)))
-        if not chunk:
-            break
-        request += chunk
-        if header_end < 0:
-            header_end = request.find(b"\r\n\r\n")
-            if header_end >= 0:
-                for header in request[:header_end].decode().split("\r\n")[1:]:
-                    name, separator, value = header.partition(":")
-                    if separator and name.strip().lower() == "content-length":
-                        content_length = int(value.strip())
-        if header_end >= 0 and len(request) >= header_end + 4 + content_length:
-            break
+    if not chunk:
+        if request.data:
+            raise ValueError("Incomplete request")
+        raise EOFError("Connection closed without sending a request")
+    request.data += chunk
+    request.last_activity = time.ticks_ms()
+    if request.header_end < 0:
+        request.header_end = request.data.find(b"\r\n\r\n")
+        if request.header_end >= 0:
+            for header in request.data[:request.header_end].decode().split("\r\n")[1:]:
+                name, separator, value = header.partition(":")
+                if separator and name.strip().lower() == "content-length":
+                    request.content_length = int(value.strip())
+            if request.content_length < 0:
+                raise ValueError("Invalid Content-Length")
 
-    if header_end < 0 or len(request) >= API_MAX_REQUEST_BYTES:
+    expected_length = request.header_end + 4 + request.content_length
+    if request.header_end >= 0:
+        if expected_length > API_MAX_REQUEST_BYTES:
+            raise ValueError("Oversized request")
+        if len(request.data) >= expected_length:
+            header = request.data[:request.header_end].decode()
+            method, path, _ = header.split("\r\n", 1)[0].split(" ", 2)
+            body = request.data[request.header_end + 4:expected_length]
+            return method, path, body
+    if len(request.data) >= API_MAX_REQUEST_BYTES:
         raise ValueError("Invalid or oversized request")
-    if len(request) < header_end + 4 + content_length:
-        raise ValueError("Incomplete request body")
-    header = request[:header_end].decode()
-    method, path, _ = header.split("\r\n", 1)[0].split(" ", 2)
-    body = request[header_end + 4:header_end + 4 + content_length]
-    return method, path, body
+    return None
+
+
+def handle_http_request(client, method, path, body):
+    path_with_query = path
+    path = path.split("?", 1)[0]
+    if method == "GET" and path == "/health":
+        send_http_response(client, "200 OK", '{"status":"ok"}')
+        return None
+    if method == "GET" and path in ("/", "/settings"):
+        saved = "saved=1" in path_with_query
+        send_http_response(client, "200 OK", settings_page(saved), "text/html")
+        return None
+    if method == "POST" and path == "/settings":
+        settings = parse_settings(body)
+        save_config(settings)
+        send_action_response(client, "Settings saved. Display update queued.")
+        return {"type": "settings", "settings": settings}
+    if method == "POST" and path == "/dashboard":
+        send_action_response(client, "Dashboard display update queued.")
+        return {"type": "dashboard"}
+    if method == "POST" and path == "/feed":
+        feed_index = parse_feed_index(body)
+        send_action_response(client, "Feed selected. Display update queued.")
+        return {"type": "feed", "feed_index": feed_index}
+    if method != "POST" or path != "/render":
+        send_http_response(client, "404 Not Found", '{"error":"not found"}')
+        return None
+
+    payload = json.loads(body.decode())
+    if not isinstance(payload, dict):
+        raise ValueError("Expected a JSON object")
+    lines = payload.get("lines")
+    data = payload.get("data")
+    if not isinstance(lines, list) and not isinstance(data, dict):
+        raise ValueError("Expected a lines array or data object")
+    send_http_response(client, "202 Accepted", '{"status":"rendering"}')
+    return {"type": "render", "payload": payload}
 
 
 def poll_render_api(server):
     if server is None:
         return None
 
-    try:
-        client, _ = server.accept()
-    except OSError:
-        return None
-
-    stage = "reading request"
-    try:
-        client.settimeout(15)
-        method, path, body = read_http_request(client)
-        stage = "sending response"
-        path_with_query = path
-        path = path.split("?", 1)[0]
-        if method == "GET" and path == "/health":
-            send_http_response(client, "200 OK", '{"status":"ok"}')
-            return None
-        if method == "GET" and path in ("/", "/settings"):
-            saved = "saved=1" in path_with_query
-            send_http_response(client, "200 OK", settings_page(saved), "text/html")
-            return None
-        if method == "POST" and path == "/settings":
-            settings = parse_settings(body)
-            save_config(settings)
-            send_action_response(client, "Settings saved. Display update queued.")
-            return {"type": "settings", "settings": settings}
-        if method == "POST" and path == "/dashboard":
-            send_action_response(client, "Dashboard display update queued.")
-            return {"type": "dashboard"}
-        if method == "POST" and path == "/feed":
-            feed_index = parse_feed_index(body)
-            send_action_response(client, "Feed selected. Display update queued.")
-            return {"type": "feed", "feed_index": feed_index}
-        if method != "POST" or path != "/render":
-            send_http_response(client, "404 Not Found", '{"error":"not found"}')
-            return None
-
-        payload = json.loads(body.decode())
-        if not isinstance(payload, dict):
-            raise ValueError("Expected a JSON object")
-        lines = payload.get("lines")
-        data = payload.get("data")
-        if not isinstance(lines, list) and not isinstance(data, dict):
-            raise ValueError("Expected a lines array or data object")
-        send_http_response(client, "202 Accepted", '{"status":"rendering"}')
-        return {"type": "render", "payload": payload}
-    except Exception as error:
-        print("API request failed while {}: {}".format(stage, error))
+    if len(server.pending_requests) < API_MAX_PENDING_CLIENTS:
         try:
-            send_http_response(
-                client,
-                "400 Bad Request",
-                json.dumps({"error": str(error), "stage": stage}),
-            )
-        except Exception:
-            pass
-        return None
-    finally:
-        client.close()
+            client, _ = server.listener.accept()
+        except OSError as error:
+            if not error.args or error.args[0] not in WOULD_BLOCK_ERRORS:
+                print("API accept failed:", error)
+        else:
+            try:
+                client.setblocking(False)
+                server.pending_requests.append(PendingRequest(client))
+            except Exception:
+                client.close()
+                raise
+
+    for request in server.pending_requests[:]:
+        client = request.client
+        keep_pending = False
+        stage = "reading request"
+        try:
+            parsed = read_http_request(request)
+            if parsed is None:
+                keep_pending = True
+                continue
+            client.settimeout(15)
+            stage = "sending response"
+            return handle_http_request(client, *parsed)
+        except EOFError as error:
+            print("API connection closed:", error)
+        except Exception as error:
+            print("API request failed while {}: {}".format(stage, error))
+            try:
+                client.settimeout(15)
+                status = "400 Bad Request"
+                if isinstance(error, OSError) and error.args and error.args[0] == errno.ETIMEDOUT and stage == "reading request":
+                    status = "408 Request Timeout"
+                send_http_response(client, status, json.dumps({"error": str(error), "stage": stage}))
+            except Exception as response_error:
+                print("API error response failed:", response_error)
+        finally:
+            if not keep_pending:
+                server.pending_requests.remove(request)
+                client.close()
+    return None

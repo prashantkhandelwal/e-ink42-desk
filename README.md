@@ -193,6 +193,15 @@ The normal full-refresh flash still occurs once the new screen is ready.
 2. Verify API keys are correct
 3. Check update intervals (shouldn't be too frequent)
 
+### UI Request Timeouts
+The API reads incoming requests incrementally so idle browser connections and
+partially received requests do not block other UI actions. Connections that send
+no request are closed after 15 seconds of inactivity. Incomplete requests that
+stop making progress receive HTTP 408; submit the action again and check WiFi
+signal strength if this persists. Up to four incoming connections are retained.
+The UI can still pause while the device performs a blocking source request or
+physical display refresh.
+
 ### Data Fetch Failures
 1. Ensure device has internet connection
 2. Verify API endpoints are accessible
