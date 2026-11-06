@@ -29,7 +29,7 @@ except ImportError:
 
 from epd4in2_v2 import EPD_4in2
 from render_api import create_api_server, poll_render_api
-from screens.common import clean_text, show_error
+from screens.common import clean_text, show_error, show_wifi_disconnected
 from screens.custom import show_custom_data
 from screens.dashboard import show_dashboard
 from screens.feed import show_feed
@@ -411,6 +411,7 @@ def main():
             force_render = False
         except Exception as error:
             print("Update failed:", error)
+            force_render = True
             if display is None and not display_initialization_attempted:
                 try:
                     display = EPD_4in2()
@@ -419,7 +420,10 @@ def main():
                     print("Display initialization failed:", display_error)
             if display is not None:
                 try:
-                    show_error(display, error)
+                    if not wifi_is_connected(wlan):
+                        show_wifi_disconnected(display)
+                    else:
+                        show_error(display, error)
                 except Exception as display_error:
                     print("Error display failed:", display_error)
 

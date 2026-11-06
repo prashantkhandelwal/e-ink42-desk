@@ -175,6 +175,11 @@ curl -X POST http://<device-ip>/render -d '{"type": "settings"}'
 
 ## Troubleshooting
 
+### WiFi Disconnected
+When WiFi cannot connect, the display shows a centered, crossed-out WiFi icon
+instead of an error message. The device keeps retrying and restores the selected
+view after reconnecting. Other errors still display their messages.
+
 ### Display Not Updating
 1. Check WiFi connection
 2. Verify API keys are correct

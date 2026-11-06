@@ -127,6 +127,34 @@ def refresh_partial(display):
         display.EPD_4IN2_V2_Display(display.buffer_1Gray)
 
 
+def show_wifi_disconnected(display):
+    image = display.image1Gray
+    image.fill(display.white)
+    center_x = display.width // 2
+    center_y = display.height // 2
+    origin_y = center_y + 32
+    for radius in (64, 44, 24):
+        inner_squared = (radius - 6) ** 2
+        outer_squared = radius ** 2
+        for dy in range(-radius, 1):
+            for dx in range(dy, -dy + 1):
+                distance_squared = dx * dx + dy * dy
+                if inner_squared <= distance_squared <= outer_squared:
+                    image.pixel(center_x + dx, origin_y + dy, display.black)
+    for dy in range(-6, 7):
+        for dx in range(-6, 7):
+            if dx * dx + dy * dy <= 36:
+                image.pixel(center_x + dx, origin_y + dy, display.black)
+
+    # A white border keeps the slash distinct where it crosses the signal arcs.
+    for thickness, color in ((11, display.white), (5, display.black)):
+        for step in range(97):
+            x = center_x - 48 + step
+            y = center_y - 40 + step * 80 // 96
+            image.fill_rect(x - thickness // 2, y - thickness // 2, thickness, thickness, color)
+    refresh_full(display, True)
+
+
 def show_error(display, message):
     image = display.image1Gray
     image.fill(display.white)
