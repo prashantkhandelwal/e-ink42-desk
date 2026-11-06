@@ -103,17 +103,19 @@ def show_time_sync_retry(display, seconds, partial=False):
     display.EPD_4IN2_V2_Display(display.buffer_1Gray)
 
 
-def synchronize_clock_with_retry(display):
+def synchronize_clock_with_retry(display=None):
     try:
         synchronize_clock()
         return False
     except Exception as error:
         print("time sync failed! retrying in 5 seconds")
         print(error)
-        show_time_sync_retry(display, 5)
+        if display is not None:
+            show_time_sync_retry(display, 5)
         for seconds in range(4, 0, -1):
             time.sleep_ms(1000)
-            show_time_sync_retry(display, seconds, partial=True)
+            if display is not None:
+                show_time_sync_retry(display, seconds, partial=True)
         time.sleep_ms(1000)
         synchronize_clock()
         return True
@@ -350,6 +352,7 @@ def main():
     while True:
         local_timestamp = None
         display_initialization_attempted = False
+        preparing_data = True
         try:
             wlan = connect_wifi()
             if api_server is None:
@@ -359,17 +362,13 @@ def main():
                 key_dashboard = Pin(KEY0_PIN, Pin.IN, Pin.PULL_UP)
             if key_feed is None:
                 key_feed = Pin(KEY1_PIN, Pin.IN, Pin.PULL_UP)
-            if display is None:
-                display_initialization_attempted = True
-                display = EPD_4in2()
-                display.EPD_4IN2_V2_Clear()
             now = time.ticks_ms()
             time_sync_is_stale = last_time_sync is None or time.ticks_diff(now, last_time_sync) >= TIME_SYNC_INTERVAL_MS
             if time_sync_is_stale:
                 try:
-                    retry_was_shown = synchronize_clock_with_retry(display)
+                    clock_was_retried = synchronize_clock_with_retry()
                     last_time_sync = time.ticks_ms()
-                    if retry_was_shown:
+                    if clock_was_retried:
                         force_render = True
                 except Exception as error:
                     if last_time_sync is None:
@@ -380,15 +379,27 @@ def main():
             data_is_stale = last_data_update is None or time.ticks_diff(now, last_data_update) >= DATA_UPDATE_INTERVAL_MS
             if current_view == VIEW_DASHBOARD and data_is_stale:
                 symbol = CONFIG.get("stock_symbol", "MSFT")
-                quote = get_stock_quote(symbol)
+                next_quote = get_stock_quote(symbol)
                 service_render_api(api_server, pending_api_events)
-                weather = get_local_weather(get_current_location())
+                next_weather = get_local_weather(get_current_location())
                 service_render_api(api_server, pending_api_events)
+                quote, weather = next_quote, next_weather
                 last_data_update = time.ticks_ms()
                 print("{}: {:.2f}".format(symbol, quote["price"]))
 
+            feed_is_stale = False
+            if current_view == VIEW_FEED:
+                feed_is_stale = last_feed_update is None or time.ticks_diff(now, last_feed_update) >= NEWS_UPDATE_INTERVAL_MS
+                if feed_is_stale:
+                    headlines = get_feed_headlines(FEEDS[feed_index])
+                    last_feed_update = time.ticks_ms()
+
             if weather is not None:
                 local_timestamp = update_local_clock(weather)
+            preparing_data = False
+            if display is None:
+                display_initialization_attempted = True
+                display = EPD_4in2()
             if current_view == VIEW_DASHBOARD:
                 show_dashboard(
                     display,
@@ -399,10 +410,6 @@ def main():
                     clear_first=force_render,
                 )
             elif current_view == VIEW_FEED:
-                feed_is_stale = last_feed_update is None or time.ticks_diff(now, last_feed_update) >= NEWS_UPDATE_INTERVAL_MS
-                if feed_is_stale:
-                    headlines = get_feed_headlines(FEEDS[feed_index])
-                    last_feed_update = time.ticks_ms()
                 if force_render or feed_is_stale:
                     show_feed(display, FEEDS[feed_index]["name"], headlines, feed_index, len(FEEDS), force_render)
             elif force_render:
@@ -412,20 +419,23 @@ def main():
         except Exception as error:
             print("Update failed:", error)
             force_render = True
-            if display is None and not display_initialization_attempted:
-                try:
-                    display = EPD_4in2()
-                    display.EPD_4IN2_V2_Clear()
-                except Exception as display_error:
-                    print("Display initialization failed:", display_error)
-            if display is not None:
-                try:
-                    if not wifi_is_connected(wlan):
-                        show_wifi_disconnected(display)
-                    else:
-                        show_error(display, error)
-                except Exception as display_error:
-                    print("Error display failed:", display_error)
+            offline = not wifi_is_connected(wlan)
+            if preparing_data and not offline:
+                print("Keeping previous screen; data preparation will be retried.")
+            else:
+                if display is None and not display_initialization_attempted:
+                    try:
+                        display = EPD_4in2()
+                    except Exception as display_error:
+                        print("Display initialization failed:", display_error)
+                if display is not None:
+                    try:
+                        if offline:
+                            show_wifi_disconnected(display)
+                        else:
+                            show_error(display, error)
+                    except Exception as display_error:
+                        print("Error display failed:", display_error)
 
         gc.collect()
         if (

@@ -178,7 +178,15 @@ curl -X POST http://<device-ip>/render -d '{"type": "settings"}'
 ### WiFi Disconnected
 When WiFi cannot connect, the display shows a centered, crossed-out WiFi icon
 instead of an error message. The device keeps retrying and restores the selected
-view after reconnecting. Other errors still display their messages.
+view after reconnecting. Display/rendering errors still display their messages.
+
+### Fetch Before Refresh
+Stock, weather, and feed data are fetched before the display is refreshed.
+The previous screen stays visible during network requests and time-sync retries.
+Stock and weather updates are committed together only after both requests succeed.
+If data preparation fails while WiFi is connected, the device logs the error and
+retries without clearing or replacing the previous screen, including at startup.
+The normal full-refresh flash still occurs once the new screen is ready.
 
 ### Display Not Updating
 1. Check WiFi connection
