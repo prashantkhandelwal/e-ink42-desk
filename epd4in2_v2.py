@@ -101,11 +101,12 @@ class EPD_4in2:
 
     def reset(self):
         self.digital_write(self.reset_pin, 1)
-        self.delay_ms(200)
-        self.digital_write(self.reset_pin, 0)
-        self.delay_ms(10)
-        self.digital_write(self.reset_pin, 1)
-        self.delay_ms(200)
+        self.delay_ms(20)
+        for _ in range(3):
+            self.digital_write(self.reset_pin, 0)
+            self.delay_ms(2)
+            self.digital_write(self.reset_pin, 1)
+            self.delay_ms(20)
 
     def send_command(self, command):
         self.digital_write(self.dc_pin, 0)

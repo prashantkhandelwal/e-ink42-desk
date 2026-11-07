@@ -193,6 +193,15 @@ The normal full-refresh flash still occurs once the new screen is ready.
 2. Verify API keys are correct
 3. Check update intervals (shouldn't be too frequent)
 
+### Full Refresh BUSY Timeout
+The driver uses the short reset-pulse sequence from Waveshare's
+[Pico 4.2-inch V2 reference driver](https://github.com/waveshareteam/Pico_ePaper_Code/blob/main/python/Pico-ePaper-4.2_V2.py):
+three 2 ms low pulses with 20 ms high intervals. Upload `epd4in2_v2.py` when
+updating this behavior, not just `main.py`.
+The 15-second BUSY timeout and one full-refresh retry remain enabled; persistent
+failures still surface as errors. If timeouts continue, verify the V2 panel
+model, BUSY/RST wiring, and a stable power supply.
+
 ### UI Request Timeouts
 The API reads incoming requests incrementally so idle browser connections and
 partially received requests do not block other UI actions. Connections that send
@@ -208,8 +217,23 @@ physical display refresh.
 3. Check request headers in config
 
 ### Time Sync Issues
+The device uses `time.windows.com` as its primary NTP server, with
+`time.google.com` as a fallback.
+
 1. Device must have internet connectivity for NTP
 2. Verify time sync interval isn't too frequent
+
+The dashboard reads the RTC after display initialization and subtracts rendering
+and API-processing time from its wait until the next minute. If a refresh takes
+past that boundary, the next clock update starts without an additional wait.
+Blocking network requests and physical e-ink refreshes can still delay updates.
+If the clock remains a fixed amount behind, check the RTC immediately after a
+successful NTP synchronization to distinguish clock drift from display latency.
+Serial output includes the synchronized UTC RTC, local RTC with seconds and its
+timezone offset, and display initialization/refresh durations in milliseconds.
+Compare the `RTC local` timestamp with the actual time when it is logged. If it
+is correct but `Dashboard refresh took` is large or a BUSY timeout occurs, the
+delay is in the display path rather than the NTP clock.
 
 ## Performance Tips
 

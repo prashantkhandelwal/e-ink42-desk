@@ -72,11 +72,11 @@ def connect_wifi():
 
 def synchronize_clock():
     last_error = None
-    for host in ("pool.ntp.org", "time.google.com"):
+    for host in ("time.windows.com", "time.google.com"):
         try:
             ntptime.host = host
             ntptime.settime()
-            print("Clock synchronized with", host)
+            print("Clock synchronized with", host, "RTC UTC:", time.gmtime())
             return
         except Exception as error:
             last_error = error
@@ -300,6 +300,11 @@ def update_local_clock(weather):
     weather["clock"] = "{:02d}:{:02d}".format(local_time[3], local_time[4])
     weather["date"] = "{:02d}-{:02d}-{:04d}".format(local_time[2], local_time[1], local_time[0])
     weather["weekday"] = WEEKDAYS[local_time[6]]
+    print(
+        "RTC local: {} {}:{:02d} (UTC offset={}s)".format(
+            weather["date"], weather["clock"], local_time[5], weather["timezone_offset"]
+        )
+    )
     return timestamp
 
 
@@ -394,12 +399,15 @@ def main():
                     headlines = get_feed_headlines(FEEDS[feed_index])
                     last_feed_update = time.ticks_ms()
 
-            if weather is not None:
-                local_timestamp = update_local_clock(weather)
             preparing_data = False
             if display is None:
                 display_initialization_attempted = True
+                initialization_started_at = time.ticks_ms()
                 display = EPD_4in2()
+                print("Display initialization took", time.ticks_diff(time.ticks_ms(), initialization_started_at), "ms")
+            if weather is not None:
+                clock_updated_at = time.ticks_ms()
+                local_timestamp = update_local_clock(weather)
             if current_view == VIEW_DASHBOARD:
                 show_dashboard(
                     display,
@@ -409,6 +417,7 @@ def main():
                     partial=not data_is_stale and not force_render,
                     clear_first=force_render,
                 )
+                print("Dashboard refresh took", time.ticks_diff(time.ticks_ms(), clock_updated_at), "ms")
             elif current_view == VIEW_FEED:
                 if force_render or feed_is_stale:
                     show_feed(display, FEEDS[feed_index]["name"], headlines, feed_index, len(FEEDS), force_render)
@@ -446,7 +455,11 @@ def main():
         ):
             wait_seconds = 5
         else:
-            wait_seconds = 60 if local_timestamp is None else 60 - local_timestamp % 60
+            if local_timestamp is None:
+                wait_seconds = 60
+            else:
+                elapsed_seconds = time.ticks_diff(time.ticks_ms(), clock_updated_at) // 1000
+                wait_seconds = max(0, 60 - local_timestamp % 60 - elapsed_seconds)
         requested = (
             pending_api_events.pop(0)
             if pending_api_events
